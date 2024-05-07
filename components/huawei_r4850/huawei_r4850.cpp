@@ -47,13 +47,12 @@ void HuaweiR4850Component::setup() {
 }
 
 void HuaweiR4850Component::update() {
-  ESP_LOGD(TAG, "Sending request message");
+  ESP_LOGD(TAG, "Sending request message2");
   std::vector<uint8_t> data = {0, 0, 0, 0, 0, 0, 0, 0};
   this->canbus->send_data(CAN_ID_REQUEST, true, data);
 
   // no new value for 5* intervall -> set sensors to NAN)
   if (millis() - lastUpdate_ > this->update_interval_ * 5) {
-    this->publish_sensor_state_(this->power_sensor_, NAN);  // hinzugefügt
     this->publish_sensor_state_(this->input_power_sensor_, NAN);
     this->publish_sensor_state_(this->input_voltage_sensor_, NAN);
     this->publish_sensor_state_(this->input_current_sensor_, NAN);
