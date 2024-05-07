@@ -53,6 +53,7 @@ void HuaweiR4850Component::update() {
 
   // no new value for 5* intervall -> set sensors to NAN)
   if (millis() - lastUpdate_ > this->update_interval_ * 5) {
+    this->publish_sensor_state_(this->power_sensor_, NAN);  // hinzugefügt
     this->publish_sensor_state_(this->input_power_sensor_, NAN);
     this->publish_sensor_state_(this->input_voltage_sensor_, NAN);
     this->publish_sensor_state_(this->input_current_sensor_, NAN);
@@ -70,9 +71,11 @@ void HuaweiR4850Component::update() {
 float HuaweiR4850Component::calculateChargingCurrent(float power_demand_watt) {
   previousPowerDemand = power_demand_watt;
 
-  if (power_demand_watt < 0)  // negativer Wert
+  if (power_demand_watt < -50)  // negativer Wert, wir haben ertrag: ab -50 fangen wir an
   {
-    return (abs(power_demand_watt) - 10) / 56.5;
+    float currentToSet = (abs(power_demand_watt) - 10) / 56.5;
+
+    return currentToSet;
   } else {
     return 0.0;
   }

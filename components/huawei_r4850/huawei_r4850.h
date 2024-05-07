@@ -23,12 +23,12 @@ class HuaweiR4850Component : public PollingComponent {
 
   void set_power_sensor(sensor::Sensor *power_sensor) {
     power_sensor_ = power_sensor;
-    ESP_LOGV("huawei_r4850_power_sensor", "Incoming actual Watt is: %f", power_sensor_->state);
+    ESP_LOGD("huawei_r4850_power_sensor", "Incoming actual Watt is: %f", power_sensor_->state);
 
     if (millis() - lastUpdate_ > this->update_interval_ * 2) {
       float calculatedCurrent = calculateChargingCurrent(power_sensor_->state);
-      ESP_LOGV("huawei_r4850_power_sensor", "Would set calculated current to: %f", calculatedCurrent);
-      //output_current_sensor_->state = calculateChargingCurrent(power_sensor_->state);
+      ESP_LOGD("huawei_r4850_power_sensor", "Would set calculated current to: %f", calculatedCurrent);
+      // output_current_sensor_->state = calculateChargingCurrent(power_sensor_->state);
     }
   }
 
