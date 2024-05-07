@@ -17,8 +17,20 @@ class HuaweiR4850Component : public PollingComponent {
   void set_output_voltage(float value, bool offline = false);
   void set_max_output_current(float value, bool offline = false);
   void set_offline_values();
-  
-  void set_power_sensor(sensor::Sensor *power_sensor) { power_sensor_ = power_sensor; }
+
+  float previousPowerDemand;
+  float calculateChargingCurrent(float power_demand_watt);
+
+  void set_power_sensor(sensor::Sensor *power_sensor) {
+    power_sensor_ = power_sensor;
+    ESP_LOGV("huawei_r4850_power_sensor", "Incoming actual Watt is: %f", power_sensor_->state);
+
+    if (millis() - lastUpdate_ > this->update_interval_ * 2) {
+      float calculatedCurrent = calculateChargingCurrent(power_sensor_->state);
+      ESP_LOGV("huawei_r4850_power_sensor", "Would set calculated current to: %f", calculatedCurrent);
+      //output_current_sensor_->state = calculateChargingCurrent(power_sensor_->state);
+    }
+  }
 
   void set_input_voltage_sensor(sensor::Sensor *input_voltage_sensor) { input_voltage_sensor_ = input_voltage_sensor; }
   void set_input_frequency_sensor(sensor::Sensor *input_frequency_sensor) {
@@ -34,9 +46,8 @@ class HuaweiR4850Component : public PollingComponent {
   void set_output_current_sensor(sensor::Sensor *output_current_sensor) {
     output_current_sensor_ = output_current_sensor;
   }
-  // void set_max_output_current_sensor(sensor::Sensor *max_output_current_sensor) {
-  //   max_output_current_sensor_ = max_output_current_sensor;
-  // }
+  // void set_max_output_current_sensor(sensor::Sensor *max_output_current_sensor) { max_output_current_sensor_ =
+  // max_output_current_sensor; }
   void set_output_power_sensor(sensor::Sensor *output_power_sensor) { output_power_sensor_ = output_power_sensor; }
   void set_output_temp_sensor(sensor::Sensor *output_temp_sensor) { output_temp_sensor_ = output_temp_sensor; }
 
@@ -51,7 +62,7 @@ class HuaweiR4850Component : public PollingComponent {
   canbus::Canbus *canbus;
   uint32_t lastUpdate_;
 
-  sensor::Sensor *power_sensor_;
+  sensor::Sensor *power_sensor_{nullptr};  // power demand
   sensor::Sensor *input_voltage_sensor_{nullptr};
   sensor::Sensor *input_frequency_sensor_{nullptr};
   sensor::Sensor *input_current_sensor_{nullptr};

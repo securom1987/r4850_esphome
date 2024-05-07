@@ -33,6 +33,7 @@ void HuaweiR4850Component::setup() {
   Automation<std::vector<uint8_t>, uint32_t, bool> *automation;
   LambdaAction<std::vector<uint8_t>, uint32_t, bool> *lambdaaction;
   canbus::CanbusTrigger *canbus_canbustrigger;
+  previousPowerDemand = 0.0;
 
   canbus_canbustrigger = new canbus::CanbusTrigger(this->canbus, 0, 0, true);
   canbus_canbustrigger->set_component_source("canbus");
@@ -63,6 +64,17 @@ void HuaweiR4850Component::update() {
     this->publish_sensor_state_(this->output_temp_sensor_, NAN);
     this->publish_sensor_state_(this->efficiency_sensor_, NAN);
     this->publish_number_state_(this->max_output_current_number_, NAN);
+  }
+}
+
+float HuaweiR4850Component::calculateChargingCurrent(float power_demand_watt) {
+  previousPowerDemand = power_demand_watt;
+
+  if (power_demand_watt < 0)  // negativer Wert
+  {
+    return (abs(power_demand_watt) - 10) / 56.5;
+  } else {
+    return 0.0;
   }
 }
 
