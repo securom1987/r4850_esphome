@@ -33,7 +33,17 @@ void HuaweiR4850Component::setup() {
   Automation<std::vector<uint8_t>, uint32_t, bool> *automation;
   LambdaAction<std::vector<uint8_t>, uint32_t, bool> *lambdaaction;
   canbus::CanbusTrigger *canbus_canbustrigger;
-  previousPowerDemand = 0.0;
+  //================================================== hinzugefügt==========================================
+  this->power_sensor_->add_on_state_callback([this](float state) {
+    if (std::isnan(state))
+      return;
+
+    this->power_demand_ = this->calculate_power_demand_((int16_t) ceilf(state), this->last_power_demand_);
+    ESP_LOGD(TAG, "'%s': New calculated demand: %d / last demand: %d", "modbusgerät", this->power_demand_,
+             this->last_power_demand_);
+    this->last_power_demand_received_ = millis();
+  });
+  //================================================== hinzugefügt==========================================
 
   canbus_canbustrigger = new canbus::CanbusTrigger(this->canbus, 0, 0, true);
   canbus_canbustrigger->set_component_source("canbus");
@@ -47,7 +57,7 @@ void HuaweiR4850Component::setup() {
 }
 
 void HuaweiR4850Component::update() {
-  ESP_LOGD(TAG, "Sending request message2");
+  ESP_LOGD(TAG, "Sending request message");
   std::vector<uint8_t> data = {0, 0, 0, 0, 0, 0, 0, 0};
   this->canbus->send_data(CAN_ID_REQUEST, true, data);
 
@@ -67,18 +77,109 @@ void HuaweiR4850Component::update() {
   }
 }
 
-float HuaweiR4850Component::calculateChargingCurrent(float power_demand_watt) {
-  previousPowerDemand = power_demand_watt;
+//================================================== hinzugefügt==========================================
 
-  if (power_demand_watt < -50)  // negativer Wert, wir haben ertrag: ab -50 fangen wir an
-  {
-    float currentToSet = (abs(power_demand_watt) - 10) / 56.5;
-
-    return currentToSet;
-  } else {
-    return 0.0;
+int16_t HuaweiR4850Component::calculate_power_demand_(int16_t consumption, uint16_t last_power_demand) {
+  if (this->power_demand_calculation_ == POWER_DEMAND_CALCULATION_NEGATIVE_MEASUREMENTS_REQUIRED) {
+    return this->calculate_power_demand_negative_measurements_(consumption, last_power_demand);
   }
+
+  if (this->power_demand_calculation_ == POWER_DEMAND_CALCULATION_RESTART_ON_CROSSING_ZERO) {
+    return this->calculate_power_demand_restart_on_crossing_zero_(consumption, last_power_demand);
+  }
+
+  return this->calculate_power_demand_oem_(consumption);
 }
+
+int16_t HuaweiR4850Component::calculate_power_demand_negative_measurements_(int16_t consumption,
+                                                                            uint16_t last_power_demand) {
+  ESP_LOGD(TAG, "'%s': Using the new method to calculate the power demand: %d %d", "modbusgerät", consumption,
+           last_power_demand);
+
+  // importing_now   consumption   buffer   last_power_demand   power_demand   return
+  //     1000           1010         10          500               1500         900
+  //      400            410         10          500                900         900
+  //      300            310         10          500                800         800
+  //       10             20         10          500                510         510
+  //        0             10         10          500                500         500
+  //     -200           -190         10          500                300         300
+  //     -500           -490         10          500                  0           0
+  //     -700           -690         10          500               -200           0
+  int16_t importing_now = consumption - this->buffer_;
+  int16_t power_demand = importing_now + last_power_demand;
+
+  if (power_demand >= this->max_power_demand_) {
+    return this->max_power_demand_;
+  }
+
+  if (power_demand < this->min_power_demand_) {
+    return (this->zero_output_on_min_power_demand_) ? 0 : this->min_power_demand_;
+  }
+
+  return power_demand;
+}
+
+int16_t HuaweiR4850Component::calculate_power_demand_restart_on_crossing_zero_(int16_t consumption,
+                                                                               uint16_t last_power_demand) {
+  ESP_LOGD(TAG, "'%s': Using the restart on crossing zero method to calculate the power demand: %d %d", "modbusgerät",
+           consumption, last_power_demand);
+  if (this->buffer_ <= 0) {
+    ESP_LOGE(TAG,
+             "A non-positive buffer value (%d) doesn't make sense if you are using the restart on crossing zero method",
+             this->buffer_);
+  }
+
+  // importing_now   consumption   buffer   last_power_demand   power_demand   return
+  //     1000           1010         10          500               1500         900
+  //      400            410         10          500                900         900
+  //      300            310         10          500                800         800
+  //       10             20         10          500                510         510
+  //        5             15         10          500                505         505
+  //        0             10         10          500                500         500
+  //      -10              0         10          500                490           0
+  //     -200           -190         10          500                300           0
+  //     -500           -490         10          500                  0           0
+  //     -700           -690         10          500               -200           0
+  if (consumption <= 0) {
+    return 0;
+  }
+
+  return this->calculate_power_demand_negative_measurements_(consumption, last_power_demand);
+}
+
+int16_t HuaweiR4850Component::calculate_power_demand_oem_(int16_t consumption) {
+  ESP_LOGD(TAG, "'%s': Using the dumb OEM method to calculate the power demand: %d", "modbusgerät", consumption);
+
+  // 5000 > 2000 + 10: 2000
+  // 2011 > 2000 + 10: 2000
+  // 2010 > 2000 + 10: continue
+  // 500 > 2000 + 10: continue
+
+  if (consumption > this->max_power_demand_ + this->buffer_)
+    return this->max_power_demand_;
+
+  // 5000 > 2000: abs(10 - 2000) = 1990 (already handled above!)
+  // 2011 > 2000: abs(10 - 2000) = 1990 (already handled above!)
+  // 2010 > 2000: abs(10 - 2000) = 1990
+  // 2001 > 2000: abs(10 - 2000) = 1990
+  // 2000 > 2000: continue
+  //  500 > 2000: continue
+  if (consumption > this->max_power_demand_)
+    return std::abs(this->buffer_ - this->max_power_demand_);
+
+  // 2001 >= 100: (abs(2001 - 10) + (2001 - 10)) / 2 = 1991 (already handled above!)
+  // 2000 >= 100: (abs(2000 - 10) + (2000 - 10)) / 2 = 1990
+  //  500 >= 100: (abs(500 - 10) + (500 - 10)) / 2 = 490
+  //  100 >= 100: (abs(100 - 10) + (100 - 10)) / 2 = 90
+  //   90 >= 100: continue
+  if (consumption >= this->min_power_demand_)
+    return (int16_t) ((std::abs(consumption - this->buffer_) + (consumption - this->buffer_)) / 2);
+
+  // 90: 0
+  return 0;
+}
+
+//================================================== hinzugefügt==========================================
 
 void HuaweiR4850Component::set_output_voltage(float value, bool offline) {
   uint8_t functionCode = 0x0;
